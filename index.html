@@ -44,23 +44,26 @@
 
     fetch(apiUrl)
         .then(response => {
-            if (!response.ok) throw new Error("Ошибка бэкенда: " + response.status);
+            // Если сервер ответил 404, принудительно выбрасываем ошибку, чтобы уйти в блок catch
+            if (!response.ok) {
+                throw new Error("Сервер вернул статус: " + response.status);
+            }
             return response.json();
         })
         .then(events => {
-            console.log("Получены данные от бэкенда:", events);
+            console.log("Получены живые данные от бэкенда:", events);
             renderMarkers(events);
         })
         .catch(err => {
-            console.warn('Включаю локальный мок-датасет для тестов:', err.message);
+            console.warn('Переключение на локальный мок-датасет:', err.message);
 
-            // Исправленный fallback массив данных
+            // Тестовый хардкод точек для проверки фронта прямо в Telegram
             const mockEvents = [
                 { title: "Детский спектакль", startDate: "2026-06-01", venueName: "Гейхал а-Тарбут", city: "Ришон ле-Цион", latitude: 31.9730, longitude: 34.7925, link: "https://google.com" },
-                { title: "Фестиваль анимации", startDate: "2026-06-05", venueName: "Культурный центр", city: "Бат-Ям", latitude: 32.0232, longitude: 34.7502, link: "https://google.com" }
+                { title: "Фестиваль анимации", startDate: "2026-06-05", venueName: "Культурный中心", city: "Бат-Ям", latitude: 32.0232, longitude: 34.7502, link: "https://google.com" }
             ];
 
-            // Исправленный JS синтаксис фильтрации (используем => вместо Java-подобного ->)
+            // Фильтрация мока под выбранный в боте город
             const filtered = (selectedCity === 'all' || !selectedCity)
                 ? mockEvents
                 : mockEvents.filter(e => e.city.toLowerCase().trim() === selectedCity.toLowerCase().trim());
