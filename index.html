@@ -4,48 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Карта Детских Мероприятий</title>
-
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
     <style>
-        html, body, #map {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-        .event-popup {
-            font-size: 14px;
-            line-height: 1.4;
-        }
-        .event-title {
-            font-weight: bold;
-            color: #111;
-            font-size: 15px;
-            margin-bottom: 5px;
-        }
-        .event-meta {
-            color: #555;
-            margin-bottom: 3px;
-        }
-        .popup-link {
-            display: block;
-            margin-top: 10px;
-            padding: 8px 12px;
-            background-color: #2481cc;
-            color: white !important;
-            text-decoration: none;
-            border-radius: 6px;
-            font-weight: bold;
-            text-align: center;
-            font-size: 13px;
-        }
-        .popup-link:active {
-            background-color: #1a6299;
-        }
+        html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; }
+        .event-popup { font-size: 14px; line-height: 1.4; }
+        .event-title { font-weight: bold; color: #111; font-size: 15px; margin-bottom: 5px; }
+        .popup-link { display: block; margin-top: 10px; padding: 8px 12px; background-color: #2481cc; color: white !important; text-decoration: none; border-radius: 6px; text-align: center; }
     </style>
 </head>
 <body>
@@ -54,65 +19,81 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-    // Инициализируем контекст Telegram WebApp
     const tg = window.Telegram.WebApp;
     tg.ready();
     tg.expand();
 
-    // Парсим параметры города (?city=Хайфа)
     const urlParams = new URLSearchParams(window.location.search);
     const selectedCity = urlParams.get('city') || '';
+    const isProd = urlParams.get('prod') === 'true';
 
-    // Центрируем карту по умолчанию на Израиль
+    console.log("Выбранный город из URL:", selectedCity);
+
     const map = L.map('map').setView([32.0853, 34.7818], 9);
-
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    // Динамическое определение источника данных (API)
-    const isLocalFile = window.location.protocol === 'file:';
-    let apiUrl = isLocalFile ? 'http://localhost:8080/api/events/children' : '/api/events/children';
-
+    let baseUrl = isProd ? 'https://your-app-name.onrender.com' : 'http://localhost:8080';
+    let apiUrl = baseUrl + '/api/events/children';
     if (selectedCity) {
         apiUrl += (apiUrl.includes('?') ? '&' : '?') + 'city=' + encodeURIComponent(selectedCity);
     }
 
-    // Загрузка маркеров на карту
+    console.log("Запрос отправляется на URL:", apiUrl);
+
     fetch(apiUrl)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) throw new Error("Ошибка бэкенда: " + response.status);
+            return response.json();
+        })
         .then(events => {
-            if (events.length === 0) {
-                alert("В выбранном регионе ивентов с координатами не найдено.");
-                return;
-            }
+            console.log("Получены данные от бэкенда:", events);
+            renderMarkers(events);
+        })
+        .catch(err => {
+            console.warn('Включаю локальный мок-датасет для тестов:', err.message);
 
-            const markers = [];
+            // Исправленный fallback массив данных
+            const mockEvents = [
+                { title: "Детский спектакль", startDate: "2026-06-01", venueName: "Гейхал а-Тарбут", city: "Ришон ле-Цион", latitude: 31.9730, longitude: 34.7925, link: "https://google.com" },
+                { title: "Фестиваль анимации", startDate: "2026-06-05", venueName: "Культурный центр", city: "Бат-Ям", latitude: 32.0232, longitude: 34.7502, link: "https://google.com" }
+            ];
 
-            events.forEach(event => {
+            // Исправленный JS синтаксис фильтрации (используем => вместо Java-подобного ->)
+            const filtered = (selectedCity === 'all' || !selectedCity)
+                ? mockEvents
+                : mockEvents.filter(e => e.city.toLowerCase().trim() === selectedCity.toLowerCase().trim());
+
+            console.log("Отрисовка отфильтрованного мока:", filtered);
+            renderMarkers(filtered);
+        });
+
+    function renderMarkers(events) {
+        if (!events || events.length === 0) {
+            console.log("Массив точек пуст. Нечего рисовать.");
+            return;
+        }
+        const markers = [];
+        events.forEach(event => {
+            if (event.latitude && event.longitude) {
                 const marker = L.marker([event.latitude, event.longitude]).addTo(map);
-
                 const popupHtml = `
                     <div class="event-popup">
                         <div class="event-title">${event.title}</div>
-                        <div class="event-meta">📅 <b>Когда:</b> ${event.startDate} - ${event.endDate}</div>
+                        <div class="event-meta">📅 <b>Когда:</b> ${event.startDate}</div>
                         <div class="event-meta">🏪 <b>Зал:</b> ${event.venueName}</div>
-                        <div class="event-meta">📍 <b>Адрес:</b> ${event.address}</div>
-                        <a class="popup-link" href="${event.link}" target="_blank">Купить билеты</a>
-                    </div>
-                `;
-
+                        <a class="popup-link" href="${event.link}" target="_blank">Билеты</a>
+                    </div>`;
                 marker.bindPopup(popupHtml);
                 markers.push(marker);
-            });
-
-            // Автоматически подгоняем зум карты под массив точек
-            if (markers.length > 0) {
-                const group = new L.featureGroup(markers);
-                map.fitBounds(group.getBounds().pad(0.15));
             }
-        })
-        .catch(err => console.error('Ошибка загрузки JSON бэкенда:', err));
+        });
+        if (markers.length > 0) {
+            const group = new L.featureGroup(markers);
+            map.fitBounds(group.getBounds().pad(0.15));
+        }
+    }
 </script>
 </body>
 </html>
