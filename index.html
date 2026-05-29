@@ -8,9 +8,10 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; }
-        .event-popup { font-size: 14px; line-height: 1.4; }
-        .event-title { font-weight: bold; color: #111; font-size: 15px; margin-bottom: 5px; }
-        .popup-link { display: block; margin-top: 10px; padding: 8px 12px; background-color: #2481cc; color: white !important; text-decoration: none; border-radius: 6px; text-align: center; }
+        .event-popup { font-size: 14px; line-height: 1.4; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .event-title { font-weight: bold; color: #111; font-size: 15px; margin-bottom: 6px; }
+        .event-meta { margin-bottom: 4px; color: #444; }
+        .popup-link { display: block; margin-top: 10px; padding: 8px 12px; background-color: #2481cc; color: white !important; text-decoration: none; border-radius: 6px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -27,71 +28,88 @@
     const selectedCity = urlParams.get('city') || '';
     const isProd = urlParams.get('prod') === 'true';
 
-    console.log("Выбранный город из URL:", selectedCity);
-
+    // Инициализация карты с видом на Израиль
     const map = L.map('map').setView([32.0853, 34.7818], 9);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    let baseUrl = isProd ? 'https://your-app-name.onrender.com' : 'http://localhost:8080';
+    // Динамический URL в зависимости от окружения
+    let baseUrl = isProd ? 'https://your-app-name.onrender.com' : 'http://127.0.0.1:8080';
     let apiUrl = baseUrl + '/api/events/children';
     if (selectedCity) {
         apiUrl += (apiUrl.includes('?') ? '&' : '?') + 'city=' + encodeURIComponent(selectedCity);
     }
 
-    console.log("Запрос отправляется на URL:", apiUrl);
+    let dataLoadedFromServer = false;
 
-    fetch(apiUrl)
-        .then(response => {
-            // Если сервер ответил 404, принудительно выбрасываем ошибку, чтобы уйти в блок catch
-            if (!response.ok) {
-                throw new Error("Сервер вернул статус: " + response.status);
-            }
-            return response.json();
-        })
-        .then(events => {
-            console.log("Получены живые данные от бэкенда:", events);
+    // Запрос к бэкенду за живыми данными
+    fetch(apiUrl, {
+        method: 'GET',
+        mode: 'cors',
+        headers: { 'Accept': 'application/json' }
+    })
+    .then(response => {
+        if (!response.ok) throw new Error("Статус ответа сервера: " + response.status);
+        return response.json();
+    })
+    .then(events => {
+        if (events && events.length > 0) {
+            dataLoadedFromServer = true;
             renderMarkers(events);
-        })
-        .catch(err => {
-            console.warn('Переключение на локальный мок-датасет:', err.message);
-
-            // Тестовый хардкод точек для проверки фронта прямо в Telegram
-            const mockEvents = [
-                { title: "Детский спектакль", startDate: "2026-06-01", venueName: "Гейхал а-Тарбут", city: "Ришон ле-Цион", latitude: 31.9730, longitude: 34.7925, link: "https://google.com" },
-                { title: "Фестиваль анимации", startDate: "2026-06-05", venueName: "Культурный中心", city: "Бат-Ям", latitude: 32.0232, longitude: 34.7502, link: "https://google.com" }
-            ];
-
-            // Фильтрация мока под выбранный в боте город
-            const filtered = (selectedCity === 'all' || !selectedCity)
-                ? mockEvents
-                : mockEvents.filter(e => e.city.toLowerCase().trim() === selectedCity.toLowerCase().trim());
-
-            console.log("Отрисовка отфильтрованного мока:", filtered);
-            renderMarkers(filtered);
-        });
-
-    function renderMarkers(events) {
-        if (!events || events.length === 0) {
-            console.log("Массив точек пуст. Нечего рисовать.");
-            return;
+        } else {
+            throw new Error("Бэкенд вернул пустой массив событий.");
         }
+    })
+    .catch(err => {
+        console.warn('Сервер недоступен, подгружаем локальный мок-фоллбэк:', err.message);
+        if (!dataLoadedFromServer) {
+            loadMockFallback();
+        }
+    });
+
+    // Захардкоженные тестовые данные на случай падения сети (тоже с ценами для тестов)
+    function loadMockFallback() {
+        const mockEvents = [
+            { title: "Детский спектакль (Тест)", startDate: "2026-06-01", venueName: "Гейхал а-Тарбут", city: "Ришон ле-Цион", latitude: 31.9730, longitude: 34.7925, link: "https://google.com", price: "95 ₪" },
+            { title: "Фестиваль анимации (Тест)", startDate: "2026-06-05", venueName: "Культурный центр", city: "Бат-Ям", latitude: 32.0232, longitude: 34.7502, link: "https://google.com", price: "От 50 ₪" }
+        ];
+
+        const filtered = (selectedCity === 'all' || !selectedCity)
+            ? mockEvents
+            : mockEvents.filter(e => e.city.toLowerCase().trim() === selectedCity.toLowerCase().trim());
+
+        renderMarkers(filtered);
+    }
+
+    // Отрисовка маркеров на карте Leaflet
+    function renderMarkers(events) {
+        if (!events || events.length === 0) return;
         const markers = [];
+
         events.forEach(event => {
             if (event.latitude && event.longitude) {
                 const marker = L.marker([event.latitude, event.longitude]).addTo(map);
+
+                // Формируем строку цены: если пришло null/пусто, пишем "Не указана"
+                const displayPrice = event.price ? event.price : 'Не указана';
+
+                // Шаблон поп-апа с добавленным полем цены
                 const popupHtml = `
                     <div class="event-popup">
                         <div class="event-title">${event.title}</div>
                         <div class="event-meta">📅 <b>Когда:</b> ${event.startDate}</div>
                         <div class="event-meta">🏪 <b>Зал:</b> ${event.venueName}</div>
+                        <div class="event-meta">💳 <b>Цена:</b> ${displayPrice}</div>
                         <a class="popup-link" href="${event.link}" target="_blank">Билеты</a>
                     </div>`;
+
                 marker.bindPopup(popupHtml);
                 markers.push(marker);
             }
         });
+
+        // Автоматический фокус и масштабирование карты под все найденные точки
         if (markers.length > 0) {
             const group = new L.featureGroup(markers);
             map.fitBounds(group.getBounds().pad(0.15));
